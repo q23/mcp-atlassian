@@ -56,3 +56,7 @@ ENV PYTHONUNBUFFERED=1
 # X-Atlassian-Cloud-Id: <your_cloud_id>
 
 ENTRYPOINT ["mcp-atlassian"]
+
+# Default: HTTP streamable-http Service auf Port 9000 (für zentrales Hosting, z.B. Dokploy).
+# Override möglich per `docker run <image> --transport stdio` oder eigenen CMD/Args.
+CMD ["--transport", "streamable-http", "--port", "9000", "--host", "0.0.0.0", "-v"]
