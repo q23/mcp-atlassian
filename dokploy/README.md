@@ -106,6 +106,20 @@ ins Repo committen.
 | **Container Port** | `9000` |
 | **HTTPS** | on (Let's Encrypt via Traefik) |
 
+### Volume (PFLICHT für Multi-User-OAuth)
+
+Damit DCR-registrierte MCP-Clients und refresh tokens einen Redeploy
+überleben, ein persistentes Volume mounten:
+
+| Feld | Wert |
+| --- | --- |
+| **Host Path / Volume Name** | z. B. `mcp-atlassian-data` (Dokploy erstellt den Mount automatisch) |
+| **Container Path** | `/data` |
+
+Das Image setzt `FASTMCP_HOME=/data` als Default — FastMCP speichert dann
+OAuth-Proxy-State dort ab. Ohne dieses Volume müssen sich alle Kollegen nach
+jedem Redeploy **neu registrieren**.
+
 ### Deploy
 
 → **Deploy**-Button.
