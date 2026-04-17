@@ -30,6 +30,7 @@ MANIFEST
 .env
 .env.*
 !tests/e2e/docker/.env.example
+!dokploy/.env.example
 .venv
 env/
 venv/
