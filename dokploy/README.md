@@ -136,7 +136,89 @@ curl https://mcp.firma.de/.well-known/oauth-authorization-server
 
 ## Schritt 5 — Clients konfigurieren
 
-### Claude Desktop / Cursor
+Beim ersten Aufruf leitet der Client via Discovery + DCR durch den OAuth-Flow.
+Jeder Kollege loggt sich mit seinem Atlassian-Account ein — die Tokens werden
+pro Session vom OAuth-Proxy verwaltet.
+
+> **Ersetze** in den folgenden Snippets `https://mcp.firma.de/mcp` durch die
+> produktive URL eurer Instanz (z. B. `https://jira-mcp.dokploy.q23.de/mcp`).
+
+### One-Liner für den Kollegen-Rollout
+
+#### Claude Desktop / Cowork
+
+Fügt den Server zur Desktop-Config hinzu (merged — bestehende MCP-Server bleiben erhalten).
+Voraussetzung: `jq` installiert (macOS: `brew install jq`, Debian/Ubuntu: `apt install jq`).
+
+**macOS (Terminal / zsh / bash):**
+```bash
+MCP_URL="https://mcp.firma.de/mcp"
+CFG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+mkdir -p "$(dirname "$CFG")" && [ -f "$CFG" ] || echo '{}' > "$CFG"
+tmp=$(mktemp) && jq --arg url "$MCP_URL" '.mcpServers.atlassian = {url:$url}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+```
+
+**Linux (bash):**
+```bash
+MCP_URL="https://mcp.firma.de/mcp"
+CFG="$HOME/.config/Claude/claude_desktop_config.json"
+mkdir -p "$(dirname "$CFG")" && [ -f "$CFG" ] || echo '{}' > "$CFG"
+tmp=$(mktemp) && jq --arg url "$MCP_URL" '.mcpServers.atlassian = {url:$url}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+```
+
+**Windows (PowerShell):**
+```powershell
+$McpUrl = "https://mcp.firma.de/mcp"
+$Cfg = "$env:APPDATA\Claude\claude_desktop_config.json"
+New-Item -ItemType Directory -Force -Path (Split-Path $Cfg) | Out-Null
+if (-not (Test-Path $Cfg)) { '{}' | Set-Content $Cfg -Encoding UTF8 }
+$j = Get-Content $Cfg -Raw | ConvertFrom-Json
+if (-not $j.mcpServers) { $j | Add-Member mcpServers ([pscustomobject]@{}) -Force }
+$j.mcpServers | Add-Member atlassian ([pscustomobject]@{url=$McpUrl}) -Force
+$j | ConvertTo-Json -Depth 10 | Set-Content $Cfg -Encoding UTF8
+```
+
+Danach **Claude Desktop komplett beenden** (Cmd+Q / rechter Mausklick auf Tray-Icon → Quit) und neu starten. Beim ersten Tool-Call öffnet sich der Atlassian-Login.
+
+---
+
+#### Claude Code (CLI)
+
+Einfachster Weg — mitgelieferter `claude`-CLI (plattform-unabhängig):
+
+```bash
+claude mcp add --transport http --scope user atlassian https://mcp.firma.de/mcp
+```
+
+Schreibt in `~/.claude/settings.json` (user-scope). Projekt-scope: `--scope project` → legt `.mcp.json` im aktuellen Projekt an.
+
+**Alternativ per jq direkt in `~/.claude/settings.json` (macOS / Linux):**
+```bash
+MCP_URL="https://mcp.firma.de/mcp"
+CFG="$HOME/.claude/settings.json"
+mkdir -p "$(dirname "$CFG")" && [ -f "$CFG" ] || echo '{}' > "$CFG"
+tmp=$(mktemp) && jq --arg url "$MCP_URL" '.mcpServers.atlassian = {type:"http", url:$url}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+```
+
+**Windows (PowerShell) direkter Weg:**
+```powershell
+$McpUrl = "https://mcp.firma.de/mcp"
+$Cfg = "$env:USERPROFILE\.claude\settings.json"
+New-Item -ItemType Directory -Force -Path (Split-Path $Cfg) | Out-Null
+if (-not (Test-Path $Cfg)) { '{}' | Set-Content $Cfg -Encoding UTF8 }
+$j = Get-Content $Cfg -Raw | ConvertFrom-Json
+if (-not $j.mcpServers) { $j | Add-Member mcpServers ([pscustomobject]@{}) -Force }
+$j.mcpServers | Add-Member atlassian ([pscustomobject]@{type="http"; url=$McpUrl}) -Force
+$j | ConvertTo-Json -Depth 10 | Set-Content $Cfg -Encoding UTF8
+```
+
+Danach in der aktiven Claude-Code-Session neu starten (`/exit`, `claude`).
+
+---
+
+#### Cursor
+
+Config-Pfad: `~/.cursor/mcp.json` (macOS/Linux) bzw. `%USERPROFILE%\.cursor\mcp.json` (Windows) — gleiche Struktur wie Claude Desktop. Beispiel-Inhalt:
 
 ```json
 {
@@ -148,11 +230,9 @@ curl https://mcp.firma.de/.well-known/oauth-authorization-server
 }
 ```
 
-Beim ersten Aufruf leitet der Client via Discovery + DCR durch den OAuth-Flow.
-Jeder Kollege loggt sich mit seinem Atlassian-Account ein — die Tokens werden
-pro Session vom OAuth-Proxy verwaltet.
+---
 
-### ChatGPT Connector
+#### ChatGPT Connector
 
 URL eintragen: `https://mcp.firma.de/mcp` — Discovery läuft automatisch.
 
