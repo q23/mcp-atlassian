@@ -38,6 +38,12 @@ FROM python:3.13-alpine
 
 # Create a non-root user 'app'
 RUN adduser -D -h /home/app -s /bin/sh app
+
+# Persistent directory for FastMCP OAuth proxy client registrations.
+# Mount a volume onto /data in production (Dokploy/K8s) to survive restarts.
+RUN mkdir -p /data && chown app:app /data
+ENV FASTMCP_HOME=/data
+
 WORKDIR /app
 USER app
 
