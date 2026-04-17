@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from typing import Any
 
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
 from mcp.server.auth.provider import OAuthClientInformationFull
@@ -68,6 +69,24 @@ class HardenedOAuthProxy(OAuthProxy):
 
         client_info = client_info.model_copy(update=updates)
         await super().register_client(client_info)
+
+    def _build_upstream_authorize_url(
+        self, txn_id: str, transaction: dict[str, Any]
+    ) -> str:
+        """Strip RFC 8707 `resource` param — Atlassian rejects it with `invalid_target`.
+
+        FastMCP forwards the `resource` indicator sent by MCP clients (Claude,
+        ChatGPT) to the upstream IdP. Atlassian Cloud only understands `audience`
+        (set via ``extra_authorize_params``) and fails the subsequent token
+        exchange with "invalid_target: Incorrect resource parameters" when a
+        `resource` parameter is present in the authorize request.
+        """
+        if transaction.get("resource"):
+            logger.debug(
+                "Dropping RFC 8707 resource parameter before forwarding to Atlassian"
+            )
+            transaction = {k: v for k, v in transaction.items() if k != "resource"}
+        return super()._build_upstream_authorize_url(txn_id, transaction)
 
 
 __all__ = ["HardenedOAuthProxy", "parse_env_list"]
