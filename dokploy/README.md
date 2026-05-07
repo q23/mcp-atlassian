@@ -153,28 +153,31 @@ Voraussetzung: `jq` installiert (macOS: `brew install jq`, Debian/Ubuntu: `apt i
 **macOS (Terminal / zsh / bash):**
 ```bash
 MCP_URL="https://mcp.firma.de/mcp"
+EXPECTED_ATLASSIAN_USER="andrej@example.com"
 CFG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 mkdir -p "$(dirname "$CFG")" && [ -f "$CFG" ] || echo '{}' > "$CFG"
-tmp=$(mktemp) && jq --arg url "$MCP_URL" '.mcpServers.atlassian = {url:$url}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+tmp=$(mktemp) && jq --arg url "$MCP_URL" --arg user "$EXPECTED_ATLASSIAN_USER" '.mcpServers.atlassian = {url:$url, headers:{"X-Atlassian-Expected-User":$user}}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ```
 
 **Linux (bash):**
 ```bash
 MCP_URL="https://mcp.firma.de/mcp"
+EXPECTED_ATLASSIAN_USER="andrej@example.com"
 CFG="$HOME/.config/Claude/claude_desktop_config.json"
 mkdir -p "$(dirname "$CFG")" && [ -f "$CFG" ] || echo '{}' > "$CFG"
-tmp=$(mktemp) && jq --arg url "$MCP_URL" '.mcpServers.atlassian = {url:$url}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+tmp=$(mktemp) && jq --arg url "$MCP_URL" --arg user "$EXPECTED_ATLASSIAN_USER" '.mcpServers.atlassian = {url:$url, headers:{"X-Atlassian-Expected-User":$user}}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ```
 
 **Windows (PowerShell):**
 ```powershell
 $McpUrl = "https://mcp.firma.de/mcp"
+$ExpectedAtlassianUser = "andrej@example.com"
 $Cfg = "$env:APPDATA\Claude\claude_desktop_config.json"
 New-Item -ItemType Directory -Force -Path (Split-Path $Cfg) | Out-Null
 if (-not (Test-Path $Cfg)) { '{}' | Set-Content $Cfg -Encoding UTF8 }
 $j = Get-Content $Cfg -Raw | ConvertFrom-Json
 if (-not $j.mcpServers) { $j | Add-Member mcpServers ([pscustomobject]@{}) -Force }
-$j.mcpServers | Add-Member atlassian ([pscustomobject]@{url=$McpUrl}) -Force
+$j.mcpServers | Add-Member atlassian ([pscustomobject]@{url=$McpUrl; headers=[pscustomobject]@{"X-Atlassian-Expected-User"=$ExpectedAtlassianUser}}) -Force
 $j | ConvertTo-Json -Depth 10 | Set-Content $Cfg -Encoding UTF8
 ```
 
@@ -187,7 +190,8 @@ Danach **Claude Desktop komplett beenden** (Cmd+Q / rechter Mausklick auf Tray-I
 Einfachster Weg — mitgelieferter `claude`-CLI (plattform-unabhängig):
 
 ```bash
-claude mcp add --transport http --scope user atlassian https://mcp.firma.de/mcp
+claude mcp add --transport http --scope user atlassian https://mcp.firma.de/mcp \
+  --header "X-Atlassian-Expected-User: andrej@example.com"
 ```
 
 Schreibt in `~/.claude/settings.json` (user-scope). Projekt-scope: `--scope project` → legt `.mcp.json` im aktuellen Projekt an.
@@ -195,20 +199,22 @@ Schreibt in `~/.claude/settings.json` (user-scope). Projekt-scope: `--scope proj
 **Alternativ per jq direkt in `~/.claude/settings.json` (macOS / Linux):**
 ```bash
 MCP_URL="https://mcp.firma.de/mcp"
+EXPECTED_ATLASSIAN_USER="andrej@example.com"
 CFG="$HOME/.claude/settings.json"
 mkdir -p "$(dirname "$CFG")" && [ -f "$CFG" ] || echo '{}' > "$CFG"
-tmp=$(mktemp) && jq --arg url "$MCP_URL" '.mcpServers.atlassian = {type:"http", url:$url}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+tmp=$(mktemp) && jq --arg url "$MCP_URL" --arg user "$EXPECTED_ATLASSIAN_USER" '.mcpServers.atlassian = {type:"http", url:$url, headers:{"X-Atlassian-Expected-User":$user}}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
 ```
 
 **Windows (PowerShell) direkter Weg:**
 ```powershell
 $McpUrl = "https://mcp.firma.de/mcp"
+$ExpectedAtlassianUser = "andrej@example.com"
 $Cfg = "$env:USERPROFILE\.claude\settings.json"
 New-Item -ItemType Directory -Force -Path (Split-Path $Cfg) | Out-Null
 if (-not (Test-Path $Cfg)) { '{}' | Set-Content $Cfg -Encoding UTF8 }
 $j = Get-Content $Cfg -Raw | ConvertFrom-Json
 if (-not $j.mcpServers) { $j | Add-Member mcpServers ([pscustomobject]@{}) -Force }
-$j.mcpServers | Add-Member atlassian ([pscustomobject]@{type="http"; url=$McpUrl}) -Force
+$j.mcpServers | Add-Member atlassian ([pscustomobject]@{type="http"; url=$McpUrl; headers=[pscustomobject]@{"X-Atlassian-Expected-User"=$ExpectedAtlassianUser}}) -Force
 $j | ConvertTo-Json -Depth 10 | Set-Content $Cfg -Encoding UTF8
 ```
 

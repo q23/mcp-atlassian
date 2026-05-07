@@ -106,8 +106,9 @@ def check_write_access(func: F) -> F:
                 error_msg = (
                     f"Cannot {action_description}: Atlassian identity guard is "
                     "enabled for write operations, but no expected user is configured. "
-                    "Set ATLASSIAN_IDENTITY_GUARD_USER or pass "
-                    "X-Atlassian-Expected-User."
+                    "Pass X-Atlassian-Expected-User from the local client. "
+                    "ATLASSIAN_IDENTITY_GUARD_USER is only appropriate for "
+                    "single-user/local stdio deployments."
                 )
                 raise ValueError(error_msg)
 

@@ -157,9 +157,9 @@ This guide covers IDE integration, environment variables, and advanced configura
 | `ATLASSIAN_OAUTH_REQUIRE_CONSENT` | Require local consent page before upstream redirect (`true`/`false`) |
 | `IGNORE_HEADER_AUTH` | Bypass proxy-injected auth headers. For GCP Cloud Run, AWS ALB deployments where load balancers inject Authorization headers (`true`/`false`) |
 | `ATLASSIAN_IDENTITY_GUARD_MODE` | Verify authenticated Atlassian user before writes (`off`, `write`, `all`) |
-| `ATLASSIAN_IDENTITY_GUARD_USER` | Explicit expected Atlassian user for shared-agent setups (account ID, email, username, or display name) |
-| `ATLASSIAN_IDENTITY_GUARD_ACCOUNT_ID` | Explicit expected Atlassian account ID (preferred for Cloud) |
-| `ATLASSIAN_IDENTITY_GUARD_EMAIL` | Explicit expected Atlassian email fallback |
+| `ATLASSIAN_IDENTITY_GUARD_USER` | Expected Atlassian user for single-user/local stdio setups only. For shared HTTP servers, send `X-Atlassian-Expected-User` from each local client instead. |
+| `ATLASSIAN_IDENTITY_GUARD_ACCOUNT_ID` | Expected Atlassian account ID for single-user/local stdio setups only (preferred for Cloud) |
+| `ATLASSIAN_IDENTITY_GUARD_EMAIL` | Expected Atlassian email fallback for single-user/local stdio setups only |
 | `ATLASSIAN_IDENTITY_GUARD_REQUIRE_REQUEST_AUTH` | Disable global credential fallback while identity guard is enabled (`true`/`false`) |
 
 See [.env.example](https://github.com/sooperset/mcp-atlassian/blob/main/.env.example) for all available options.
@@ -210,11 +210,33 @@ ENABLED_TOOLS="confluence_search,jira_get_issue,jira_search"
 # Read-only mode (disables all write operations)
 READ_ONLY_MODE=true
 
-# Identity guard for shared Codex/agent accounts
+# Identity guard for shared Codex/agent accounts.
+# On a shared HTTP server, do not set ATLASSIAN_IDENTITY_GUARD_USER here.
+# Each local client must send X-Atlassian-Expected-User instead.
 ATLASSIAN_IDENTITY_GUARD_MODE=write
-ATLASSIAN_IDENTITY_GUARD_USER=andrej@example.com
-# Optional: block writes unless the request supplies its own Atlassian auth
 ATLASSIAN_IDENTITY_GUARD_REQUIRE_REQUEST_AUTH=true
+```
+
+Local HTTP client configuration for one user:
+
+```json
+{
+  "mcpServers": {
+    "mcp-atlassian": {
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "X-Atlassian-Expected-User": "andrej@example.com"
+      }
+    }
+  }
+}
+```
+
+For local stdio setups where each user runs their own MCP process, the expected
+identity can be set as a local environment variable instead:
+
+```bash
+ATLASSIAN_IDENTITY_GUARD_USER=andrej@example.com
 ```
 
 Command-line alternative:

@@ -99,7 +99,8 @@ Both transport types support per-request authentication where each user provides
         "mcp-atlassian-service": {
           "url": "http://localhost:9000/mcp",
           "headers": {
-            "Authorization": "Bearer <USER_OAUTH_ACCESS_TOKEN>"
+            "Authorization": "Bearer <USER_OAUTH_ACCESS_TOKEN>",
+            "X-Atlassian-Expected-User": "<USER_EMAIL_OR_ACCOUNT_ID>"
           }
         }
       }
@@ -113,7 +114,8 @@ Both transport types support per-request authentication where each user provides
         "mcp-atlassian-service": {
           "url": "http://localhost:9000/mcp",
           "headers": {
-            "Authorization": "Token <USER_PERSONAL_ACCESS_TOKEN>"
+            "Authorization": "Token <USER_PERSONAL_ACCESS_TOKEN>",
+            "X-Atlassian-Expected-User": "<USER_EMAIL_OR_USERNAME>"
           }
         }
       }
@@ -197,6 +199,7 @@ For multi-tenant applications where each user connects to their own Atlassian cl
 2. Users provide authentication via HTTP headers:
    - `Authorization: Bearer <user_oauth_token>`
    - `X-Atlassian-Cloud-Id: <user_cloud_id>`
+   - `X-Atlassian-Expected-User: <user_email_or_account_id>`
 
 ### Python Example
 
@@ -207,13 +210,15 @@ from mcp import ClientSession
 
 user_token = "user-specific-oauth-token"
 user_cloud_id = "user-specific-cloud-id"
+expected_user = "user@example.com"
 
 async def main():
     async with streamablehttp_client(
         "http://localhost:9000/mcp",
         headers={
             "Authorization": f"Bearer {user_token}",
-            "X-Atlassian-Cloud-Id": user_cloud_id
+            "X-Atlassian-Cloud-Id": user_cloud_id,
+            "X-Atlassian-Expected-User": expected_user
         }
     ) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:

@@ -265,8 +265,9 @@ def _enforce_identity_guard(
     if not expected_values:
         error_msg = (
             f"Atlassian identity guard is enabled for {spec.name}, but no "
-            "expected user is configured. Set ATLASSIAN_IDENTITY_GUARD_USER "
-            "or pass X-Atlassian-Expected-User."
+            "expected user is configured. Pass X-Atlassian-Expected-User from "
+            "the local client. ATLASSIAN_IDENTITY_GUARD_USER is only appropriate "
+            "for single-user/local stdio deployments."
         )
         raise ValueError(error_msg)
 
