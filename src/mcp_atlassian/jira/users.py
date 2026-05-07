@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
 from requests.exceptions import HTTPError
@@ -41,6 +41,45 @@ def normalize_text(text: str | None) -> str:
 
 class UsersMixin(JiraClient):
     """Mixin for Jira user operations."""
+
+    def get_current_user_info(self) -> dict[str, Any]:
+        """Get details for the currently authenticated Jira user.
+
+        Returns:
+            Current user data returned by Jira's ``myself`` endpoint.
+
+        Raises:
+            Exception: If unable to get valid current-user data.
+        """
+        try:
+            logger.debug("Calling self.jira.myself() to get current user details.")
+            myself_data = self.jira.myself()
+            if not isinstance(myself_data, dict):
+                error_msg = "Failed to get user data: response was not a dictionary."
+                logger.error(
+                    f"{error_msg} Response type: {type(myself_data)}, "
+                    f"Response: {str(myself_data)[:200]}"
+                )
+                raise Exception(error_msg)
+            logger.debug(f"Received current Jira user data: {str(myself_data)[:500]}")
+            return myself_data
+        except HTTPError as http_err:
+            response_content = ""
+            if http_err.response is not None:
+                try:
+                    response_content = http_err.response.text
+                except AttributeError:
+                    response_content = "(could not decode response content)"
+            logger.error(
+                f"HTTPError getting current Jira user info: {http_err}. "
+                f"Response: {response_content[:500]}"
+            )
+            error_msg = f"Unable to get current Jira user info: {http_err}"
+            raise Exception(error_msg) from http_err
+        except Exception as e:
+            logger.error(f"Error getting current Jira user info: {e}", exc_info=True)
+            error_msg = f"Unable to get current Jira user info: {e}"
+            raise Exception(error_msg) from e
 
     def get_current_user_account_id(self) -> str:
         """

@@ -6,9 +6,11 @@ from typing import Any, TypeVar
 import requests
 from fastmcp import Context
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_request
 from requests.exceptions import HTTPError
 
 from mcp_atlassian.exceptions import MCPAtlassianAuthenticationError
+from mcp_atlassian.utils.identity import ExpectedIdentity, IdentityGuardConfig
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,8 @@ def check_write_access(func: F) -> F:
     If in read-only mode, it raises a ToolError.
     Also catches unhandled exceptions and re-raises them as ToolError with
     descriptive error messages.
-    Assumes the decorated function is async and has `ctx: Context` as its first argument.
+    Assumes the decorated function is async and has `ctx: Context` as its first
+    argument.
     """
     tool_name = func.__name__
 
@@ -67,7 +70,46 @@ def check_write_access(func: F) -> F:
                 "_", " "
             )  # e.g., "create_issue" -> "create issue"
             logger.warning(f"Attempted to call tool '{tool_name}' in read-only mode.")
-            raise ValueError(f"Cannot {action_description} in read-only mode.")
+            error_msg = f"Cannot {action_description} in read-only mode."
+            raise ValueError(error_msg)
+
+        identity_guard = (
+            getattr(app_lifespan_ctx, "identity_guard", None)
+            if app_lifespan_ctx is not None
+            else None
+        )
+        if (
+            isinstance(identity_guard, IdentityGuardConfig)
+            and identity_guard.enforce_writes
+        ):
+            expected_found = identity_guard.expected.is_configured
+            try:
+                request = get_http_request()
+                request_expected = getattr(
+                    request.state, "atlassian_expected_identity", None
+                )
+                if (
+                    isinstance(request_expected, ExpectedIdentity)
+                    and request_expected.is_configured
+                ):
+                    expected_found = True
+            except (RuntimeError, LookupError):
+                pass
+
+            if not expected_found:
+                action_description = tool_name.replace("_", " ")
+                logger.warning(
+                    "Attempted to call tool '%s' while Atlassian identity guard "
+                    "has no expected user configured.",
+                    tool_name,
+                )
+                error_msg = (
+                    f"Cannot {action_description}: Atlassian identity guard is "
+                    "enabled for write operations, but no expected user is configured. "
+                    "Set ATLASSIAN_IDENTITY_GUARD_USER or pass "
+                    "X-Atlassian-Expected-User."
+                )
+                raise ValueError(error_msg)
 
         return await func(ctx, *args, **kwargs)
 

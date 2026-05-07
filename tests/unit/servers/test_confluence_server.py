@@ -43,6 +43,11 @@ def mock_confluence_fetcher():
     mock_fetcher.search.return_value = [mock_page]
     mock_fetcher.get_page_content.return_value = mock_page
     mock_fetcher.get_page_children.return_value = [mock_page]
+    mock_fetcher.get_current_user_info.return_value = {
+        "accountId": "test-account-id",
+        "email": "test.user@example.com",
+        "displayName": "Test User",
+    }
     mock_fetcher.get_space_page_tree.return_value = {
         "space_key": "TEST",
         "total_pages": 1,
@@ -196,6 +201,7 @@ def test_confluence_mcp(mock_confluence_fetcher, mock_base_confluence_config):
         download_content_attachments,
         get_attachments,
         get_comments,
+        get_current_user,
         get_labels,
         get_page,
         get_page_children,
@@ -236,6 +242,7 @@ def test_confluence_mcp(mock_confluence_fetcher, mock_base_confluence_config):
     confluence_sub_mcp.add_tool(create_page)
     confluence_sub_mcp.add_tool(update_page)
     confluence_sub_mcp.add_tool(delete_page)
+    confluence_sub_mcp.add_tool(get_current_user)
     confluence_sub_mcp.add_tool(search_user)
     confluence_sub_mcp.add_tool(upload_attachment)
     confluence_sub_mcp.add_tool(upload_attachments)
@@ -265,6 +272,7 @@ def no_fetcher_test_confluence_mcp(mock_base_confluence_config):
         download_content_attachments,
         get_attachments,
         get_comments,
+        get_current_user,
         get_labels,
         get_page,
         get_page_children,
@@ -307,6 +315,7 @@ def no_fetcher_test_confluence_mcp(mock_base_confluence_config):
     confluence_sub_mcp.add_tool(create_page)
     confluence_sub_mcp.add_tool(update_page)
     confluence_sub_mcp.add_tool(delete_page)
+    confluence_sub_mcp.add_tool(get_current_user)
     confluence_sub_mcp.add_tool(search_user)
     confluence_sub_mcp.add_tool(upload_attachment)
     confluence_sub_mcp.add_tool(upload_attachments)
@@ -567,6 +576,17 @@ async def test_add_label(client, mock_confluence_fetcher):
     result_data = json.loads(response.content[0].text)
     assert isinstance(result_data, list)
     assert result_data[0]["name"] == "test-label"
+
+
+@pytest.mark.anyio
+async def test_get_current_user(client, mock_confluence_fetcher):
+    """Test the get_current_user tool returns authenticated Confluence user info."""
+    response = await client.call_tool("confluence_get_current_user", {})
+
+    mock_confluence_fetcher.get_current_user_info.assert_called_once_with()
+    result_data = json.loads(response.content[0].text)
+    assert result_data["success"] is True
+    assert result_data["user"]["accountId"] == "test-account-id"
 
 
 @pytest.mark.anyio

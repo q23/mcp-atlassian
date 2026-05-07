@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from mcp_atlassian.servers.main import UserTokenMiddleware, main_mcp
+from mcp_atlassian.utils.identity import ExpectedIdentity
 
 
 @pytest.mark.anyio
@@ -199,6 +200,26 @@ class TestUserTokenMiddleware:
         assert passed_scope["method"] == "POST"
         assert passed_scope["path"] == "/mcp"
         assert passed_scope["state"]["user_atlassian_cloud_id"] == "test-cloud-id-123"
+
+    @pytest.mark.anyio
+    async def test_expected_identity_header_extraction_success(
+        self, middleware, mock_scope, mock_receive, mock_send
+    ):
+        """Test successful expected identity header extraction."""
+        mock_scope["headers"] = [
+            (b"authorization", b"Bearer test-token"),
+            (b"x-atlassian-expected-user", b"Andrej Daiker"),
+            (b"x-atlassian-expected-account-id", b"account-123"),
+        ]
+
+        await middleware(mock_scope, mock_receive, mock_send)
+
+        middleware.app.assert_called_once()
+        passed_scope = middleware.app.call_args[0][0]
+        expected_identity = passed_scope["state"]["atlassian_expected_identity"]
+        assert isinstance(expected_identity, ExpectedIdentity)
+        assert expected_identity.user == "Andrej Daiker"
+        assert expected_identity.account_id == "account-123"
 
     @pytest.mark.anyio
     async def test_empty_bearer_token_returns_401(

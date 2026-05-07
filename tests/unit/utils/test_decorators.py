@@ -10,14 +10,16 @@ from mcp_atlassian.utils.decorators import (
     handle_auth_errors,
     handle_tool_errors,
 )
+from mcp_atlassian.utils.identity import ExpectedIdentity, IdentityGuardConfig
 
 
 class DummyContext:
-    def __init__(self, read_only):
+    def __init__(self, read_only, identity_guard=None):
+        app_context = MagicMock(read_only=read_only)
+        if identity_guard is not None:
+            app_context.identity_guard = identity_guard
         self.request_context = MagicMock()
-        self.request_context.lifespan_context = {
-            "app_lifespan_context": MagicMock(read_only=read_only)
-        }
+        self.request_context.lifespan_context = {"app_lifespan_context": app_context}
 
 
 @pytest.mark.asyncio
@@ -41,6 +43,38 @@ async def test_check_write_access_allows_in_writable():
     ctx = DummyContext(read_only=False)
     result = await dummy_tool(ctx, 4)
     assert result == 8
+
+
+@pytest.mark.asyncio
+async def test_check_write_access_blocks_without_expected_identity():
+    @check_write_access
+    async def dummy_tool(ctx, x):
+        return x * 2
+
+    ctx = DummyContext(
+        read_only=False,
+        identity_guard=IdentityGuardConfig(mode="write"),
+    )
+    with pytest.raises(ToolError) as exc:
+        await dummy_tool(ctx, 3)
+    assert "no expected user is configured" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_check_write_access_allows_with_env_expected_identity():
+    @check_write_access
+    async def dummy_tool(ctx, x):
+        return x * 2
+
+    ctx = DummyContext(
+        read_only=False,
+        identity_guard=IdentityGuardConfig(
+            mode="write",
+            expected=ExpectedIdentity(user="andrej@example.com"),
+        ),
+    )
+    result = await dummy_tool(ctx, 5)
+    assert result == 10
 
 
 @pytest.mark.asyncio

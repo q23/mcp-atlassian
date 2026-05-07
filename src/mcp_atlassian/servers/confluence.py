@@ -33,6 +33,17 @@ confluence_mcp = FastMCP(
 
 
 @confluence_mcp.tool(
+    tags={"confluence", "read", "toolset:confluence_users"},
+    annotations={"title": "Get Current User", "readOnlyHint": True},
+)
+async def get_current_user(ctx: Context) -> str:
+    """Return the currently authenticated Confluence user."""
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+    current_user = confluence_fetcher.get_current_user_info()
+    return json.dumps({"success": True, "user": current_user})
+
+
+@confluence_mcp.tool(
     tags={"confluence", "read", "toolset:confluence_pages"},
     annotations={"title": "Search Content", "readOnlyHint": True},
 )

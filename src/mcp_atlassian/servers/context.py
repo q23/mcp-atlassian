@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from mcp_atlassian.utils.identity import IdentityGuardConfig
 
 if TYPE_CHECKING:
     from mcp_atlassian.confluence.config import ConfluenceConfig
@@ -21,3 +23,4 @@ class MainAppContext:
     read_only: bool = False
     enabled_tools: list[str] | None = None
     enabled_toolsets: set[str] | None = None
+    identity_guard: IdentityGuardConfig = field(default_factory=IdentityGuardConfig)

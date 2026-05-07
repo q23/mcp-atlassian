@@ -17,6 +17,12 @@ from starlette.requests import Request
 from mcp_atlassian.confluence import ConfluenceConfig, ConfluenceFetcher
 from mcp_atlassian.jira import JiraConfig, JiraFetcher
 from mcp_atlassian.servers.context import MainAppContext
+from mcp_atlassian.utils.identity import (
+    ExpectedIdentity,
+    IdentityGuardConfig,
+    actual_identity_from_user_data,
+    verify_expected_identity,
+)
 from mcp_atlassian.utils.oauth import OAuthConfig
 from mcp_atlassian.utils.urls import validate_url_for_ssrf
 
@@ -61,17 +67,21 @@ def _jira_on_validated(
     user_email: str | None,
 ) -> None:
     """Post-validation logging for Jira (user ID only)."""
+    actual_identity = actual_identity_from_user_data(validation_data)
+    user_id = actual_identity.account_id or "unknown"
     if auth_branch == "header_pat":
         logger.debug(
             f"{fn_name}: Validated header-based Jira token "
-            f"for user ID: {validation_data}"
+            f"for user ID: {user_id}"
         )
     elif auth_branch == "basic":
         logger.debug(
-            f"{fn_name}: Validated Jira basic auth for user ID: {validation_data}"
+            f"{fn_name}: Validated Jira basic auth for user ID: {user_id}"
         )
+    elif auth_branch == "global":
+        logger.debug(f"{fn_name}: Validated global Jira auth for user ID: {user_id}")
     else:  # oauth_pat
-        logger.debug(f"{fn_name}: Validated Jira token for user ID: {validation_data}")
+        logger.debug(f"{fn_name}: Validated Jira token for user ID: {user_id}")
 
 
 def _confluence_on_validated(
@@ -103,6 +113,13 @@ def _confluence_on_validated(
         logger.debug(
             f"{fn_name}: Validated basic auth. "
             f"User: {user_email}, DisplayName='{display_name}'"
+        )
+    elif auth_branch == "global":
+        logger.debug(
+            f"{fn_name}: Validated global Confluence auth. "
+            f"User context: "
+            f"Email='{user_email or derived_email}', "
+            f"DisplayName='{display_name}'"
         )
     else:  # oauth_pat
         logger.debug(
@@ -138,7 +155,7 @@ def _jira_spec() -> _ServiceSpec:
         token_header="X-Atlassian-Jira-Personal-Token",  # noqa: S106
         filter_kwargs={"projects_filter": None},
         get_session=lambda f: f.jira._session,
-        validate_fn=lambda f: f.get_current_user_account_id(),
+        validate_fn=lambda f: f.get_current_user_info(),
         on_validated=_jira_on_validated,
     )
 
@@ -197,6 +214,80 @@ def _get_global_config(
     return config
 
 
+def _get_identity_guard_config(ctx: Context) -> IdentityGuardConfig:
+    """Get identity guard config from lifespan context."""
+    app_ctx = _get_app_lifespan_ctx(ctx)
+    identity_guard = getattr(app_ctx, "identity_guard", None) if app_ctx else None
+    return (
+        identity_guard
+        if isinstance(identity_guard, IdentityGuardConfig)
+        else IdentityGuardConfig()
+    )
+
+
+def _get_request_expected_identity(request: Request) -> ExpectedIdentity | None:
+    """Get expected identity parsed from the current request headers."""
+    expected = getattr(request.state, "atlassian_expected_identity", None)
+    return expected if isinstance(expected, ExpectedIdentity) else None
+
+
+def _should_validate_identity(
+    identity_guard: IdentityGuardConfig,
+    request_expected: ExpectedIdentity | None,
+) -> bool:
+    """Return whether current fetcher validation must enforce identity."""
+    if not identity_guard.enabled:
+        return False
+    if identity_guard.enforce_all:
+        return True
+    return identity_guard.expected.is_configured or bool(
+        request_expected and request_expected.is_configured
+    )
+
+
+def _enforce_identity_guard(
+    request: Request,
+    spec: _ServiceSpec,
+    validation_data: Any,
+    identity_guard: IdentityGuardConfig,
+) -> None:
+    """Verify the authenticated Atlassian user against expected identity."""
+    request_expected = _get_request_expected_identity(request)
+    if not _should_validate_identity(identity_guard, request_expected):
+        return
+
+    expected_values: list[ExpectedIdentity] = []
+    if identity_guard.expected.is_configured:
+        expected_values.append(identity_guard.expected)
+    if request_expected and request_expected.is_configured:
+        expected_values.append(request_expected)
+
+    if not expected_values:
+        error_msg = (
+            f"Atlassian identity guard is enabled for {spec.name}, but no "
+            "expected user is configured. Set ATLASSIAN_IDENTITY_GUARD_USER "
+            "or pass X-Atlassian-Expected-User."
+        )
+        raise ValueError(error_msg)
+
+    actual_identity = actual_identity_from_user_data(validation_data)
+    is_valid, reason = verify_expected_identity(actual_identity, expected_values)
+    if not is_valid:
+        error_msg = f"Atlassian identity guard mismatch for {spec.name}: {reason}"
+        raise ValueError(error_msg)
+
+    verified = getattr(request.state, "atlassian_identity_verified", {})
+    if not isinstance(verified, dict):
+        verified = {}
+    verified[spec.name.lower()] = {
+        "account_id": actual_identity.account_id,
+        "email": actual_identity.email,
+        "username": actual_identity.username,
+        "display_name": actual_identity.display_name,
+    }
+    request.state.atlassian_identity_verified = verified
+
+
 def _create_and_validate(
     request: Request,
     spec: _ServiceSpec,
@@ -205,6 +296,7 @@ def _create_and_validate(
     user_email: str | None = None,
     *,
     attach_ssrf_hook: bool = False,
+    identity_guard: IdentityGuardConfig | None = None,
 ) -> Any:
     """Create a fetcher, validate credentials, cache on request.state.
 
@@ -212,7 +304,7 @@ def _create_and_validate(
         request: The current Starlette request.
         spec: Service specification.
         config: Service-specific config instance.
-        auth_branch: One of "header_pat", "basic", "oauth_pat".
+        auth_branch: One of "header_pat", "basic", "oauth_pat", "global".
         user_email: User email from request state (for logging).
         attach_ssrf_hook: Whether to attach SSRF redirect hook.
 
@@ -223,7 +315,13 @@ def _create_and_validate(
         ValueError: On validation or creation failure.
     """
     fn_name = f"get_{spec.name.lower()}_fetcher"
-    auth_desc = "header-based" if auth_branch == "header_pat" else "user"
+    auth_desc = (
+        "header-based"
+        if auth_branch == "header_pat"
+        else "global"
+        if auth_branch == "global"
+        else "user"
+    )
     try:
         fetcher = spec.fetcher_class(config=config)
         if attach_ssrf_hook:
@@ -239,6 +337,8 @@ def _create_and_validate(
             auth_branch,
             user_email,
         )
+        if identity_guard:
+            _enforce_identity_guard(request, spec, validation_data, identity_guard)
         setattr(request.state, spec.state_key, fetcher)
         return fetcher
     except Exception as e:
@@ -505,9 +605,11 @@ async def _get_fetcher(ctx: Context, spec: _ServiceSpec) -> Any:
     Handles header-based PAT, basic auth, OAuth/PAT, and global fallback.
     """
     fn_name = f"get_{spec.name.lower()}_fetcher"
+    identity_guard = _get_identity_guard_config(ctx)
     logger.debug(f"{fn_name}: ENTERED. Context ID: {id(ctx)}")
+    request: Request | None = None
     try:
-        request: Request = get_http_request()
+        request = get_http_request()
         logger.debug(
             f"{fn_name}: In HTTP request context. "
             f"Request URL: {request.url}. "
@@ -559,6 +661,7 @@ async def _get_fetcher(ctx: Context, spec: _ServiceSpec) -> Any:
                 header_config,
                 "header_pat",
                 attach_ssrf_hook=True,
+                identity_guard=identity_guard,
             )
 
         # --- Branch 2: basic auth ---
@@ -590,6 +693,7 @@ async def _get_fetcher(ctx: Context, spec: _ServiceSpec) -> Any:
                 user_config,
                 "basic",
                 user_email=user_email,
+                identity_guard=identity_guard,
             )
 
         # --- Branch 3: OAuth / PAT with token ---
@@ -639,6 +743,7 @@ async def _get_fetcher(ctx: Context, spec: _ServiceSpec) -> Any:
                 user_config,
                 "oauth_pat",
                 user_email=user_email,
+                identity_guard=identity_guard,
             )
 
         else:
@@ -649,6 +754,12 @@ async def _get_fetcher(ctx: Context, spec: _ServiceSpec) -> Any:
                 f"{hasattr(request.state, 'user_atlassian_token')}. "
                 "Will use global fallback."
             )
+            if identity_guard.enabled and identity_guard.require_request_auth:
+                error_msg = (
+                    f"{spec.name} identity guard requires request-specific "
+                    "Atlassian authentication; global fallback is disabled."
+                )
+                raise ValueError(error_msg)
     except RuntimeError:
         logger.debug(
             "Not in an HTTP request context. "
@@ -667,6 +778,16 @@ async def _get_fetcher(ctx: Context, spec: _ServiceSpec) -> Any:
             f"Global config auth_type: "
             f"{global_config_fallback.auth_type}"
         )
+        if request is not None and identity_guard.enabled:
+            request_expected = _get_request_expected_identity(request)
+            if _should_validate_identity(identity_guard, request_expected):
+                return _create_and_validate(
+                    request,
+                    spec,
+                    global_config_fallback,
+                    "global",
+                    identity_guard=identity_guard,
+                )
         return spec.fetcher_class(config=global_config_fallback)
 
     logger.error(f"{spec.name} configuration could not be resolved.")

@@ -27,6 +27,10 @@ from mcp_atlassian.jira import JiraFetcher
 from mcp_atlassian.jira.config import JiraConfig
 from mcp_atlassian.utils.env import is_env_truthy
 from mcp_atlassian.utils.environment import get_available_services
+from mcp_atlassian.utils.identity import (
+    IdentityGuardConfig,
+    expected_identity_from_headers,
+)
 from mcp_atlassian.utils.io import is_read_only_mode
 from mcp_atlassian.utils.logging import mask_sensitive
 from mcp_atlassian.utils.oauth import (
@@ -125,6 +129,7 @@ async def main_lifespan(app: FastMCP[MainAppContext]) -> AsyncIterator[dict[str,
     read_only = is_read_only_mode()
     enabled_tools = get_enabled_tools()
     enabled_toolsets = get_enabled_toolsets()
+    identity_guard = IdentityGuardConfig.from_env()
 
     loaded_jira_config: JiraConfig | None = None
     loaded_confluence_config: ConfluenceConfig | None = None
@@ -165,10 +170,18 @@ async def main_lifespan(app: FastMCP[MainAppContext]) -> AsyncIterator[dict[str,
         read_only=read_only,
         enabled_tools=enabled_tools,
         enabled_toolsets=enabled_toolsets,
+        identity_guard=identity_guard,
     )
     logger.info(f"Read-only mode: {'ENABLED' if read_only else 'DISABLED'}")
     logger.info(f"Enabled tools filter: {enabled_tools or 'All tools enabled'}")
     logger.info(f"Enabled toolsets filter: {sorted(enabled_toolsets)}")
+    logger.info(
+        "Atlassian identity guard: %s%s",
+        identity_guard.mode,
+        f" ({identity_guard.expected.describe()})"
+        if identity_guard.expected.is_configured
+        else "",
+    )
 
     try:
         yield {"app_lifespan_context": app_context}
@@ -401,6 +414,8 @@ class UserTokenMiddleware:
         # They are only set when present, so hasattr() checks work correctly
         scope_copy["state"]["user_atlassian_email"] = None
         scope_copy["state"]["user_atlassian_cloud_id"] = None
+        scope_copy["state"]["atlassian_expected_identity"] = None
+        scope_copy["state"]["atlassian_identity_verified"] = {}
         scope_copy["state"]["auth_validation_error"] = None
 
         logger.debug(
@@ -488,6 +503,14 @@ class UserTokenMiddleware:
             headers = dict(scope.get("headers", []))
             auth_header = headers.get(b"authorization")
             cloud_id_header = headers.get(b"x-atlassian-cloud-id")
+            expected_identity = expected_identity_from_headers(headers)
+            if expected_identity.is_configured:
+                scope["state"]["atlassian_expected_identity"] = expected_identity
+                logger.debug(
+                    "UserTokenMiddleware: Expected Atlassian identity headers "
+                    "found: %s",
+                    expected_identity.describe(),
+                )
 
             # Convert bytes to strings (ASGI headers are always bytes)
             auth_header_str = auth_header.decode("latin-1") if auth_header else None

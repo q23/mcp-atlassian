@@ -37,6 +37,11 @@ def mock_jira_fetcher():
 
     # Configure common methods
     mock_fetcher.get_current_user_account_id.return_value = "test-account-id"
+    mock_fetcher.get_current_user_info.return_value = {
+        "accountId": "test-account-id",
+        "emailAddress": "test.user@example.com",
+        "displayName": "Test User",
+    }
     mock_fetcher.jira = MagicMock()
 
     # Configure get_issue to return fixture data
@@ -403,6 +408,7 @@ def test_jira_mcp(mock_jira_fetcher, mock_base_jira_config):
         get_agile_boards,
         get_all_projects,
         get_board_issues,
+        get_current_user,
         get_field_options,
         get_issue,
         get_issue_images,
@@ -448,6 +454,7 @@ def test_jira_mcp(mock_jira_fetcher, mock_base_jira_config):
     jira_sub_mcp.add_tool(get_sprints_from_board)
     jira_sub_mcp.add_tool(get_sprint_issues)
     jira_sub_mcp.add_tool(get_link_types)
+    jira_sub_mcp.add_tool(get_current_user)
     jira_sub_mcp.add_tool(get_user_profile)
     jira_sub_mcp.add_tool(create_issue)
     jira_sub_mcp.add_tool(batch_create_issues)
@@ -840,6 +847,17 @@ async def test_batch_create_issues_invalid_json(jira_client):
             {"issues": "{invalid json", "validate_only": False},
         )
     assert "Invalid JSON" in str(excinfo.value)
+
+
+@pytest.mark.anyio
+async def test_get_current_user_tool_success(jira_client, mock_jira_fetcher):
+    """Test the get_current_user tool returns authenticated Jira user info."""
+    response = await jira_client.call_tool("jira_get_current_user", {})
+
+    mock_jira_fetcher.get_current_user_info.assert_called_once_with()
+    result_data = json.loads(response.content[0].text)
+    assert result_data["success"] is True
+    assert result_data["user"]["accountId"] == "test-account-id"
 
 
 @pytest.mark.anyio

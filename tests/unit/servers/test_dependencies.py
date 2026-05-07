@@ -16,6 +16,7 @@ from mcp_atlassian.servers.dependencies import (
     get_confluence_fetcher,
     get_jira_fetcher,
 )
+from mcp_atlassian.utils.identity import ExpectedIdentity, IdentityGuardConfig
 from mcp_atlassian.utils.oauth import OAuthConfig
 from tests.utils.assertions import assert_mock_called_with_partial
 from tests.utils.factories import AuthConfigFactory
@@ -407,10 +408,14 @@ def _create_mock_fetcher(fetcher_class, validation_return=None, validation_error
 
     if fetcher_class == JiraFetcher:
         if validation_error:
-            mock_fetcher.get_current_user_account_id.side_effect = validation_error
+            mock_fetcher.get_current_user_info.side_effect = validation_error
         else:
-            mock_fetcher.get_current_user_account_id.return_value = (
-                validation_return or "test-account-id"
+            mock_fetcher.get_current_user_info.return_value = validation_return or (
+                {
+                    "accountId": "test-account-id",
+                    "emailAddress": "user@example.com",
+                    "displayName": "Test User",
+                }
             )
         # Set up jira._session.hooks for SSRF redirect hook attachment
         mock_session = MagicMock()
@@ -655,6 +660,105 @@ class TestGetJiraFetcher:
         called_config = mock_jira_fetcher_class.call_args[1]["config"]
         assert called_config.oauth_config is not None
         assert called_config.oauth_config.access_token == "state-token"
+
+    @patch("mcp_atlassian.servers.dependencies.get_http_request")
+    @patch("mcp_atlassian.servers.dependencies.JiraFetcher")
+    async def test_identity_guard_allows_matching_expected_user(
+        self,
+        mock_jira_fetcher_class,
+        mock_get_http_request,
+        mock_context,
+        mock_request,
+        config_factory,
+        auth_scenarios,
+    ):
+        """Identity guard records verified identity when expected user matches."""
+        _setup_mock_request_state(mock_request, auth_scenarios["oauth"])
+        mock_get_http_request.return_value = mock_request
+
+        app_context = config_factory.create_app_context(
+            jira_config=config_factory.create_jira_config(auth_type="oauth"),
+            identity_guard=IdentityGuardConfig(
+                mode="write",
+                expected=ExpectedIdentity(email="user@example.com"),
+            ),
+        )
+        _setup_mock_context(mock_context, app_context)
+
+        mock_fetcher = _create_mock_fetcher(JiraFetcher)
+        mock_jira_fetcher_class.return_value = mock_fetcher
+
+        result = await get_jira_fetcher(mock_context)
+
+        assert result == mock_fetcher
+        assert mock_request.state.atlassian_identity_verified["jira"]["email"] == (
+            "user@example.com"
+        )
+
+    @patch("mcp_atlassian.servers.dependencies.get_http_request")
+    @patch("mcp_atlassian.servers.dependencies.JiraFetcher")
+    async def test_identity_guard_blocks_mismatched_expected_user(
+        self,
+        mock_jira_fetcher_class,
+        mock_get_http_request,
+        mock_context,
+        mock_request,
+        config_factory,
+        auth_scenarios,
+    ):
+        """Identity guard blocks a token authenticated as a different Jira user."""
+        _setup_mock_request_state(mock_request, auth_scenarios["oauth"])
+        mock_request.state.atlassian_expected_identity = ExpectedIdentity(
+            account_id="expected-account"
+        )
+        mock_get_http_request.return_value = mock_request
+
+        app_context = config_factory.create_app_context(
+            jira_config=config_factory.create_jira_config(auth_type="oauth"),
+            identity_guard=IdentityGuardConfig(mode="write"),
+        )
+        _setup_mock_context(mock_context, app_context)
+
+        mock_fetcher = _create_mock_fetcher(
+            JiraFetcher,
+            validation_return={
+                "accountId": "actual-account",
+                "emailAddress": "actual@example.com",
+                "displayName": "Actual User",
+            },
+        )
+        mock_jira_fetcher_class.return_value = mock_fetcher
+
+        with pytest.raises(ValueError, match="identity guard mismatch"):
+            await get_jira_fetcher(mock_context)
+
+    @patch("mcp_atlassian.servers.dependencies.get_http_request")
+    @patch("mcp_atlassian.servers.dependencies.JiraFetcher")
+    async def test_identity_guard_require_request_auth_blocks_global_fallback(
+        self,
+        mock_jira_fetcher_class,
+        mock_get_http_request,
+        mock_context,
+        mock_request,
+        config_factory,
+    ):
+        """Request-auth mode prevents silent global Jira fallback."""
+        _setup_mock_request_state(mock_request)
+        mock_get_http_request.return_value = mock_request
+
+        app_context = config_factory.create_app_context(
+            identity_guard=IdentityGuardConfig(
+                mode="write",
+                expected=ExpectedIdentity(user="expected@example.com"),
+                require_request_auth=True,
+            ),
+        )
+        _setup_mock_context(mock_context, app_context)
+
+        with pytest.raises(ValueError, match="requires request-specific"):
+            await get_jira_fetcher(mock_context)
+
+        mock_jira_fetcher_class.assert_not_called()
 
     @patch("mcp_atlassian.servers.dependencies.get_access_token")
     @patch("mcp_atlassian.servers.dependencies.get_http_request")

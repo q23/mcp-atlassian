@@ -105,6 +105,17 @@ def _parse_additional_fields(
 
 @jira_mcp.tool(
     tags={"jira", "read", "toolset:jira_users"},
+    annotations={"title": "Get Current User", "readOnlyHint": True},
+)
+async def get_current_user(ctx: Context) -> str:
+    """Return the currently authenticated Jira user."""
+    jira = await get_jira_fetcher(ctx)
+    current_user = jira.get_current_user_info()
+    return json.dumps({"success": True, "user": current_user})
+
+
+@jira_mcp.tool(
+    tags={"jira", "read", "toolset:jira_users"},
     annotations={"title": "Get User Profile", "readOnlyHint": True},
 )
 async def get_user_profile(
