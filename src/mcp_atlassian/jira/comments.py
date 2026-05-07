@@ -257,3 +257,37 @@ class CommentsMixin(JiraClient):
                 f"Error editing comment {comment_id} on issue {issue_key}: {str(e)}"
             )
             raise Exception(f"Error editing comment: {str(e)}") from e
+
+    def delete_comment(self, issue_key: str, comment_id: str) -> dict[str, str]:
+        """
+        Delete an existing comment on an issue.
+
+        Args:
+            issue_key: The issue key (e.g. 'PROJ-123')
+            comment_id: The ID of the comment to delete
+
+        Returns:
+            Success message with issue and comment identifiers
+
+        Raises:
+            Exception: If there is an error deleting the comment
+        """
+        try:
+            api_version = "3" if self.config.is_cloud else None
+            url = self.jira.resource_url(
+                f"issue/{issue_key}/comment/{comment_id}",
+                api_version=api_version,
+            )
+            self.jira.delete(url)
+            return {
+                "message": (
+                    f"Comment {comment_id} has been deleted successfully "
+                    f"from issue {issue_key}."
+                )
+            }
+        except Exception as e:
+            logger.error(
+                f"Error deleting comment {comment_id} on issue {issue_key}: {str(e)}"
+            )
+            error_msg = f"Error deleting comment: {str(e)}"
+            raise Exception(error_msg) from e

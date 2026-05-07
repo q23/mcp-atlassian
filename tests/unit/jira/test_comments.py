@@ -380,6 +380,36 @@ class TestCommentsMixin:
         with pytest.raises(Exception, match="Error editing comment"):
             comments_mixin.edit_comment("TEST-123", "10001", "Updated comment")
 
+    def test_delete_comment_cloud_uses_v3(self, comments_mixin):
+        """Cloud delete_comment uses the Jira v3 comment endpoint."""
+        comments_mixin.jira.resource_url.return_value = (
+            "rest/api/3/issue/TEST-123/comment/10001"
+        )
+        comments_mixin.jira.delete.return_value = {}
+
+        result = comments_mixin.delete_comment("TEST-123", "10001")
+
+        comments_mixin.jira.resource_url.assert_called_once_with(
+            "issue/TEST-123/comment/10001",
+            api_version="3",
+        )
+        comments_mixin.jira.delete.assert_called_once_with(
+            "rest/api/3/issue/TEST-123/comment/10001"
+        )
+        assert result == {
+            "message": (
+                "Comment 10001 has been deleted successfully "
+                "from issue TEST-123."
+            )
+        }
+
+    def test_delete_comment_with_error(self, comments_mixin):
+        """Test delete_comment with an error response."""
+        comments_mixin.jira.delete.side_effect = Exception("API Error")
+
+        with pytest.raises(Exception, match="Error deleting comment"):
+            comments_mixin.delete_comment("TEST-123", "10001")
+
     def test_markdown_to_jira_cloud(self, comments_mixin):
         """Test _markdown_to_jira returns ADF dict on Cloud."""
         result = comments_mixin._markdown_to_jira("Markdown text")
@@ -444,6 +474,24 @@ class TestCommentsMixin:
         comment_arg = call_args[0][2]
         assert isinstance(comment_arg, str)
         assert result["body"] == "h1. Updated"
+
+    def test_delete_comment_server_uses_v2(self, server_comments_mixin):
+        """Server/DC delete_comment uses the Jira v2 comment endpoint."""
+        server_comments_mixin.jira.resource_url.return_value = (
+            "rest/api/2/issue/TEST-123/comment/10001"
+        )
+        server_comments_mixin.jira.delete.return_value = {}
+
+        result = server_comments_mixin.delete_comment("TEST-123", "10001")
+
+        server_comments_mixin.jira.resource_url.assert_called_once_with(
+            "issue/TEST-123/comment/10001",
+            api_version=None,
+        )
+        server_comments_mixin.jira.delete.assert_called_once_with(
+            "rest/api/2/issue/TEST-123/comment/10001"
+        )
+        assert "Comment 10001 has been deleted successfully" in result["message"]
 
     # --- ServiceDesk API (internal/public comments) tests ---
 

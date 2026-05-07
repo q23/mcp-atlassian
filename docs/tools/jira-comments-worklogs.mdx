@@ -46,6 +46,21 @@ Edit an existing comment on a Jira issue.
 
 ---
 
+### Delete Comment
+
+Delete an existing comment from a Jira issue.
+
+<Note>This is a **write** tool. Disabled when `READ_ONLY_MODE=true`.</Note>
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `issue_key` | `string` | Yes | Jira issue key (e.g., 'PROJ-123', 'ACV2-642') |
+| `comment_id` | `string` | Yes | The ID of the comment to delete |
+
+---
+
 ### Get Worklog
 
 Get worklog entries for a Jira issue.
